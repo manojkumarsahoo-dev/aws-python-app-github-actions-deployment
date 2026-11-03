@@ -1,4 +1,3 @@
-```yaml
 name: Terraform Deploy
 
 on:
@@ -103,4 +102,3 @@ jobs:
 
       - name: Show Terraform Outputs
         run: terraform output
-```
