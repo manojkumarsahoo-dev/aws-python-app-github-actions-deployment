@@ -1,3 +1,4 @@
+
 terraform {
   required_version = ">= 1.10.0"
 
@@ -14,9 +15,15 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }
   }
 }
 
+# VPC
 resource "aws_vpc" "app_vpc" {
   cidr_block           = var.vpc_cidr
   enable_dns_support   = true
@@ -28,11 +35,16 @@ resource "aws_vpc" "app_vpc" {
   }
 }
 
+# Internet Gateway
 resource "aws_internet_gateway" "app_igw" {
   vpc_id = aws_vpc.app_vpc.id
-  tags   = { Name = "${var.project_name}-igw" }
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
 }
 
+# Public Subnet
 resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.app_vpc.id
   cidr_block              = var.public_subnet_cidr
@@ -45,6 +57,7 @@ resource "aws_subnet" "public" {
   }
 }
 
+# Public Route Table
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.app_vpc.id
 
@@ -53,9 +66,12 @@ resource "aws_route_table" "public" {
     gateway_id = aws_internet_gateway.app_igw.id
   }
 
-  tags = { Name = "${var.project_name}-public-rt" }
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
 }
 
+# Public Route Table Association
 resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public.id
   route_table_id = aws_route_table.public.id
@@ -109,7 +125,7 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Associate Private Route Table
+# Private Route Table Association
 resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private.id
   route_table_id = aws_route_table.private.id
@@ -175,14 +191,13 @@ resource "aws_security_group" "private_app_sg" {
   }
 }
 
-
-# ADD BASTION EC2 HERE
+# Bastion EC2
 resource "aws_instance" "bastion" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.bastion_sg.id]
-  key_name                    = var.key_pair_name
+  key_name                    = aws_key_pair.app_key.key_name
   associate_public_ip_address = true
 
   root_block_device {
@@ -201,13 +216,13 @@ resource "aws_instance" "bastion" {
   depends_on = [aws_route_table_association.public]
 }
 
-# Private Application EC2
+# Private Application EC2 Security Group
 resource "aws_instance" "private_app_server" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.private.id
   vpc_security_group_ids      = [aws_security_group.private_app_sg.id]
-  key_name                    = var.key_pair_name
+  key_name                    = aws_key_pair.app_key.key_name
   associate_public_ip_address = false
 
   user_data = <<-EOF
@@ -233,6 +248,7 @@ resource "aws_instance" "private_app_server" {
   depends_on = [aws_route_table_association.private]
 }
 
+# Public Application Security Group
 resource "aws_security_group" "app_sg" {
   name_prefix = "${var.project_name}-"
   description = "Restricted SSH and Flask application access"
@@ -247,7 +263,7 @@ resource "aws_security_group" "app_sg" {
   }
 
   ingress {
-    description = "Flask demo app from administrator public IP"
+    description = "Flask demo app access"
     from_port   = 5000
     to_port     = 5000
     protocol    = "tcp"
@@ -261,19 +277,22 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = { Name = "${var.project_name}-sg" }
+  tags = {
+    Name = "${var.project_name}-sg"
+  }
 
   lifecycle {
     create_before_destroy = true
   }
 }
 
+# Public Application EC2
 resource "aws_instance" "app_server" {
   ami                         = var.ami_id
   instance_type               = var.instance_type
   subnet_id                   = aws_subnet.public.id
   vpc_security_group_ids      = [aws_security_group.app_sg.id]
-  key_name                    = var.key_pair_name
+  key_name                    = aws_key_pair.app_key.key_name
   associate_public_ip_address = true
 
   user_data = <<-EOF
