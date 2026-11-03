@@ -1,3 +1,4 @@
+```yaml
 name: Terraform Deploy
 
 on:
@@ -5,32 +6,62 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: terraform-public-ec2
   cancel-in-progress: false
 
+env:
+  AWS_DEFAULT_REGION: us-east-1
+  TF_STATE_BUCKET: aws-python-github-actions-deployments
+
 jobs:
   plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Create S3 Backend Bucket
+        run: |
+          if ! aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+            aws s3api create-bucket \
+              --bucket "$TF_STATE_BUCKET" \
+              --region us-east-1
+          else
+            echo "S3 bucket already exists."
+          fi
+
+      - name: Enable S3 Bucket Versioning
+        run: |
+          aws s3api put-bucket-versioning \
+            --bucket "$TF_STATE_BUCKET" \
+            --versioning-configuration Status=Enabled
+
       - name: Terraform Init
         run: terraform init -input=false
+
       - name: Terraform Format
         run: terraform fmt -check -recursive
+
       - name: Terraform Validate
         run: terraform validate
+
       - name: Terraform Plan
         run: terraform plan -input=false -out=tfplan
+
       - name: Upload Plan Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -42,23 +73,34 @@ jobs:
     name: Terraform Apply
     runs-on: ubuntu-latest
     needs: plan
+
     environment: production
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
       - name: Terraform Init
         run: terraform init -input=false
+
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan
+          path: .
+
       - name: Terraform Apply
         run: terraform apply -input=false -auto-approve tfplan
+
       - name: Show Terraform Outputs
         run: terraform output
+```
