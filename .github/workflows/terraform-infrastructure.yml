@@ -13,7 +13,7 @@ concurrency:
 
 env:
   AWS_DEFAULT_REGION: us-east-1
-  TF_STATE_BUCKET: aws-python-github-actions-deployments
+  TF_STATE_BUCKET: terraform-state-bkt-manoj
 
 jobs:
   plan:
