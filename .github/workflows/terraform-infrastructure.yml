@@ -1,3 +1,4 @@
+```yaml
 name: Terraform Deploy
 
 on:
@@ -33,21 +34,41 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
 
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
       - name: Create S3 Backend Bucket
         run: |
-          if ! aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+          set -e
+
+          if aws s3api head-bucket --bucket "$TF_STATE_BUCKET" 2>/dev/null; then
+            echo "S3 bucket already exists."
+          else
+            echo "Creating S3 backend bucket..."
+
             aws s3api create-bucket \
               --bucket "$TF_STATE_BUCKET" \
               --region us-east-1
-          else
-            echo "S3 bucket already exists."
           fi
+
+          aws s3api wait bucket-exists \
+            --bucket "$TF_STATE_BUCKET"
+
+          echo "S3 bucket creation verified."
 
       - name: Enable S3 Bucket Versioning
         run: |
           aws s3api put-bucket-versioning \
             --bucket "$TF_STATE_BUCKET" \
             --versioning-configuration Status=Enabled
+
+      - name: Verify S3 Backend Bucket
+        run: |
+          aws s3api head-bucket \
+            --bucket "$TF_STATE_BUCKET"
+
+          aws s3api get-bucket-versioning \
+            --bucket "$TF_STATE_BUCKET"
 
       - name: Terraform Init
         run: terraform init -input=false
@@ -88,6 +109,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: us-east-1
 
+      - name: Verify AWS Identity
+        run: aws sts get-caller-identity
+
       - name: Terraform Init
         run: terraform init -input=false
 
@@ -102,3 +126,4 @@ jobs:
 
       - name: Show Terraform Outputs
         run: terraform output
+```
